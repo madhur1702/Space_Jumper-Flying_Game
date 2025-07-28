@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Space Jumper - Original Flying Game</title>
+    <style>
+      body {
+        font-family: "Arial", sans-serif;
+        text-align: center;
+        margin: 0;
+        padding: 20px;
+        background: linear-gradient(135deg, #0c0c2e, #1a1a4a);
+        color: white;
+      }
+
+      #gameContainer {
+        display: inline-block;
+        border: 3px solid #00ffff;
+        border-radius: 10px;
+        box-shadow: 0 0 20px #00ffff;
+      }
+
+      #board {
+        background: linear-gradient(180deg, #000428, #004e92);
+        border-radius: 8px;
+      }
+
+      .info {
+        margin: 10px 0;
+        font-size: 18px;
+        color: #00ffff;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🚀 Space Jumper</h1>
+    <div class="info">Navigate your spaceship through asteroid fields!</div>
+    <div id="gameContainer">
+      <canvas id="board"></canvas>
+    </div>
+    <div class="info">Controls: SPACE, UP ARROW, or X to boost upward</div>
+    
+    <script>
+      // Game board setup
+      let board;
+      let boardWidth = 400;
+      let boardHeight = 600;
+      let context;
+
+      // Spaceship (player)
+      let shipWidth = 40;
+      let shipHeight = 30;
+      let shipX = boardWidth / 6;
+      let shipY = boardHeight / 2;
+
+      let spaceship = {
+        x: shipX,
+        y: shipY,
+        width: shipWidth,
+        height: shipHeight,
+        color: '#00ffff',
+        trail: []
+      };
+
+      // Obstacles (asteroids)
+      let obstacleArray = [];
+      let obstacleWidth = 60;
+      let obstacleHeight = 400;
+      let obstacleX = boardWidth;
+      let obstacleY = 0;
+
+      // Game physics
+      let velocityX = -3; // obstacles moving left speed
+      let velocityY = 0; // ship boost speed
+      let gravity = 0.5;
+
+      let gameOver = false;
+      let gameStarted = false;
+      let score = 0;
+      let highScore = localStorage.getItem('spaceJumperHigh') || 0;
+      let difficulty = 1;
+
+      // Particle system for effects
+      let particles = [];
+      let stars = [];
+
+      window.onload = function () {
+        board = document.getElementById("board");
+        board.height = boardHeight;
+        board.width = boardWidth;
+        context = board.getContext("2d");
+
+        // Initialize background stars
+        initStars();
+
+        requestAnimationFrame(update);
+        setInterval(placeObstacles, 2000); // every 2 seconds
+        document.addEventListener("keydown", controlShip);
+        document.addEventListener("click", controlShip);
+        
+        showInstructions();
+      };
+
+      function initStars() {
+        for (let i = 0; i < 50; i++) {
+          stars.push({
+            x: Math.random() * boardWidth,
+            y: Math.random() * boardHeight,
+            size: Math.random() * 2,
+            speed: Math.random() * 2 + 1
+          });
+        }
+      }
+
+      function update() {
+        requestAnimationFrame(update);
+        
+        if (!gameStarted) {
+          drawBackground();
+          showInstructions();
+          return;
+        }
+        
+        if (gameOver) {
+          drawBackground();
+          drawGameOver();
+          return;
+        }
+
+        context.clearRect(0, 0, board.width, board.height);
+        drawBackground();
+
+        // Update spaceship physics
+        velocityY += gravity;
+        spaceship.y = Math.max(spaceship.y + velocityY, 0);
+        
+        // Add trail effect
+        spaceship.trail.push({x: spaceship.x, y: spaceship.y + spaceship.height/2});
+        if (spaceship.trail.length > 8) {
+          spaceship.trail.shift();
+        }
+
+        drawSpaceship();
+
+        // Check if spaceship hits ground or ceiling
+        if (spaceship.y > board.height - spaceship.height) {
+          gameOver = true;
+          updateHighScore();
+        }
+
+        // Update and draw obstacles
+        for (let i = obstacleArray.length - 1; i >= 0; i--) {
+          let obstacle = obstacleArray[i];
+          obstacle.x += velocityX;
+          
+          drawAsteroid(obstacle);
+
+          // Score when passing obstacle
+          if (!obstacle.passed && spaceship.x > obstacle.x + obstacle.width) {
+            score += 1;
+            obstacle.passed = true;
+            createScoreParticles();
+          }
+
+          // Collision detection
+          if (detectCollision(spaceship, obstacle)) {
+            gameOver = true;
+            updateHighScore();
+            createExplosion(spaceship.x, spaceship.y);
+          }
+
+          // Remove off-screen obstacles
+          if (obstacle.x < -obstacleWidth) {
+            obstacleArray.splice(i, 1);
+          }
+        }
+
+        // Update particles
+        updateParticles();
+
+        // Increase difficulty over time
+        if (score > 0 && score % 10 === 0) {
+          difficulty = 1 + score / 50;
+          velocityX = -3 * difficulty;
+        }
+
+        drawUI();
+      }
+
+      function drawBackground() {
+        // Moving stars background
+        context.fillStyle = '#000428';
+        context.fillRect(0, 0, boardWidth, boardHeight);
+
+        for (let star of stars) {
+          star.x -= star.speed;
+          if (star.x < 0) {
+            star.x = boardWidth;
+            star.y = Math.random() * boardHeight;
+          }
+
+          context.fillStyle = `rgba(255, 255, 255, ${star.size/2})`;
+          context.fillRect(star.x, star.y, star.size, star.size);
+        }
+      }
+
+      function drawSpaceship() {
+        // Draw trail
+        for (let i = 0; i < spaceship.trail.length; i++) {
+          let alpha = i / spaceship.trail.length;
+          context.fillStyle = `rgba(0, 255, 255, ${alpha * 0.5})`;
+          let point = spaceship.trail[i];
+          context.fillRect(point.x - 2, point.y - 1, 4, 2);
+        }
+
+        // Draw spaceship body
+        context.fillStyle = spaceship.color;
+        context.fillRect(spaceship.x, spaceship.y, spaceship.width, spaceship.height);
+        
+        // Draw spaceship details
+        context.fillStyle = '#ffffff';
+        context.fillRect(spaceship.x + 30, spaceship.y + 10, 8, 10);
+        
+        // Engine glow effect
+        if (velocityY < 0) {
+          context.fillStyle = '#ff4444';
+          context.fillRect(spaceship.x - 10, spaceship.y + 12, 8, 6);
+        }
+      }
+
+      function drawAsteroid(obstacle) {
+        context.fillStyle = '#8B4513';
+        context.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        
+        // Add asteroid texture
+        context.fillStyle = '#A0522D';
+        for (let i = 0; i < 5; i++) {
+          let dotX = obstacle.x + Math.random() * obstacle.width;
+          let dotY = obstacle.y + Math.random() * obstacle.height;
+          context.fillRect(dotX, dotY, 3, 3);
+        }
+      }
+
+      function placeObstacles() {
+        if (gameOver || !gameStarted) {
+          return;
+        }
+
+        let randomObstacleY = obstacleY - obstacleHeight / 3 - Math.random() * (obstacleHeight / 3);
+        let openingSpace = boardHeight / 3;
+
+        // Top asteroid
+        let topObstacle = {
+          x: obstacleX,
+          y: randomObstacleY,
+          width: obstacleWidth,
+          height: obstacleHeight,
+          passed: false,
+        };
+        obstacleArray.push(topObstacle);
+
+        // Bottom asteroid
+        let bottomObstacle = {
+          x: obstacleX,
+          y: randomObstacleY + obstacleHeight + openingSpace,
+          width: obstacleWidth,
+          height: obstacleHeight,
+          passed: false,
+        };
+        obstacleArray.push(bottomObstacle);
+      }
+
+      function controlShip(e) {
+        if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyX" || e.type === "click") {
+          e.preventDefault();
+          
+          // Boost upward
+          velocityY = -8;
+
+          // Start game
+          if (!gameStarted) {
+            gameStarted = true;
+          }
+
+          // Reset game
+          if (gameOver) {
+            resetGame();
+          }
+        }
+      }
+
+      function resetGame() {
+        spaceship.y = shipY;
+        spaceship.trail = [];
+        obstacleArray = [];
+        particles = [];
+        score = 0;
+        difficulty = 1;
+        velocityX = -3;
+        gameOver = false;
+        gameStarted = false;
+      }
+
+      function showInstructions() {
+        context.fillStyle = "rgba(0, 0, 0, 0.7)";
+        context.fillRect(0, 0, boardWidth, boardHeight);
+        
+        context.fillStyle = "#00ffff";
+        context.font = "24px Arial";
+        context.textAlign = "center";
+        context.fillText("SPACE JUMPER", boardWidth/2, boardHeight/2 - 60);
+        
+        context.font = "16px Arial";
+        context.fillStyle = "#ffffff";
+        context.fillText("Navigate through asteroid fields!", boardWidth/2, boardHeight/2 - 20);
+        context.fillText("Press SPACE, UP, or X to boost", boardWidth/2, boardHeight/2 + 10);
+        context.fillText("Click anywhere to start!", boardWidth/2, boardHeight/2 + 40);
+        
+        context.textAlign = "left";
+      }
+
+      function drawGameOver() {
+        context.fillStyle = "rgba(255, 0, 0, 0.3)";
+        context.fillRect(0, 0, boardWidth, boardHeight);
+        
+        context.fillStyle = "#ff4444";
+        context.font = "32px Arial";
+        context.textAlign = "center";
+        context.fillText("MISSION FAILED", boardWidth/2, boardHeight/2 - 20);
+        
+        context.fillStyle = "#ffffff";
+        context.font = "18px Arial";
+        context.fillText("Press SPACE to retry", boardWidth/2, boardHeight/2 + 20);
+        
+        context.textAlign = "left";
+      }
+
+      function drawUI() {
+        // Score
+        context.fillStyle = "#00ffff";
+        context.font = "28px Arial";
+        context.fillText("Score: " + score, 10, 35);
+
+        // High score
+        context.fillStyle = "#ffff00";
+        context.font = "18px Arial";
+        context.fillText("Best: " + highScore, 10, 60);
+
+        // Difficulty indicator
+        context.fillStyle = "#ff8800";
+        context.font = "14px Arial";
+        context.fillText("Speed: " + difficulty.toFixed(1) + "x", 10, 80);
+      }
+
+      function updateHighScore() {
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem('spaceJumperHigh', highScore);
+        }
+      }
+
+      function createScoreParticles() {
+        for (let i = 0; i < 5; i++) {
+          particles.push({
+            x: spaceship.x + spaceship.width,
+            y: spaceship.y + spaceship.height/2,
+            vx: Math.random() * 4 - 2,
+            vy: Math.random() * 4 - 2,
+            life: 30,
+            color: '#00ff00'
+          });
+        }
+      }
+
+      function createExplosion(x, y) {
+        for (let i = 0; i < 15; i++) {
+          particles.push({
+            x: x + Math.random() * spaceship.width,
+            y: y + Math.random() * spaceship.height,
+            vx: Math.random() * 8 - 4,
+            vy: Math.random() * 8 - 4,
+            life: 60,
+            color: '#ff4444'
+          });
+        }
+      }
+
+      function updateParticles() {
+        for (let i = particles.length - 1; i >= 0; i--) {
+          let p = particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.life--;
+          
+          let alpha = p.life / 60;
+          context.fillStyle = p.color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+          context.fillRect(p.x, p.y, 3, 3);
+          
+          if (p.life <= 0) {
+            particles.splice(i, 1);
+          }
+        }
+      }
+
+      function detectCollision(a, b) {
+        return (
+          a.x < b.x + b.width &&
+          a.x + a.width > b.x &&
+          a.y < b.y + b.height &&
+          a.y + a.height > b.y
+        );
+      }
+    </script>
+  </body>
+</html>
